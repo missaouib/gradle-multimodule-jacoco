@@ -1,0 +1,22 @@
+plugins {
+    id 'java'
+    id 'jacoco'
+    id 'idea'
+}
+
+apply plugin: 'application.conventions'
+
+dependencies {
+    // Module dependencies
+    implementation project(':api')
+    implementation project(':products')
+    implementation project(':common')
+    
+    // Lombok - updated to support newer Java versions
+    compileOnly 'org.projectlombok:lombok:1.18.30'
+    annotationProcessor 'org.projectlombok:lombok:1.18.30'
+    
+    // Test dependencies
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.testcontainers:junit-jupiter:1.17.6'
+}
