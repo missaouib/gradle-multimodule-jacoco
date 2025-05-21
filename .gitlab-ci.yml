@@ -1,0 +1,79 @@
+stages:
+  - build
+  - test
+  - deploy
+variables:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+  DOCKER_DRIVER: overlay2
+  IMAGE_NAME: "$HARBOR_URL/$HARBOR_PROJECT/$DOCKER_IMAGE_NAME"
+
+default:
+  image: docker:20.10
+  services:
+    - docker:20.10-dind
+  before_script:
+    - apk add --no-cache openjdk17 curl bash git
+    - chmod +x ./gradlew
+
+cache:
+  key: gradle-cache
+  paths:
+    - .gradle/
+
+build_job:
+  stage: build
+  script:
+    - ./gradlew clean build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+
+publish_job:
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    # Create release version (Axion)
+    - ./gradlew createRelease -Prelease.disableChecks
+
+    # Publish Java artifacts to Nexus
+    - ./gradlew publish
+
+    # Extract release version
+    - echo "TAG=$(./gradlew currentVersion -q -Prelease.quiet)" >> variables.env
+    - source variables.env
+
+    # Docker login to Harbor
+    - echo "$HARBOR_PASSWORD" | docker login $HARBOR_URL -u "$HARBOR_USERNAME" --password-stdin
+
+    # Docker build + push
+    - docker build -t "$IMAGE_NAME:$TAG" .
+    - docker tag "$IMAGE_NAME:$TAG" "$IMAGE_NAME:latest"
+    - docker push "$IMAGE_NAME:$TAG"
+    - docker push "$IMAGE_NAME:latest"
+  artifacts:
+    reports:
+      dotenv: variables.env
+
+release_job:
+  stage: deploy
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs:
+    - job: publish_job
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - echo "Creating GitLab Release for version $TAG"
+  release:
+    name: "Release v$TAG"
+    description: $CI_COMMIT_MESSAGE
+    tag_name: "v$TAG"
+    ref: $CI_COMMIT_SHA
+    assets:
+      links:
+        - name: "Docker Image"
+          url: "https://$HARBOR_URL/harbor/projects/$HARBOR_PROJECT/repositories/$DOCKER_IMAGE_NAME/artifacts/$TAG"

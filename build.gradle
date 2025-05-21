@@ -4,7 +4,7 @@ plugins {
     id 'idea'
     id 'pl.allegro.tech.build.axion-release' version '1.18.18'
     id 'maven-publish'
-    id 'signing'
+    //id 'signing'
     id 'base'
 }
 
@@ -15,8 +15,9 @@ allprojects {
 
     // Axion Release Plugin (Git-based versioning)
     scmVersion {
+        useHighestVersion.set(true)
         tag {
-            prefix = ''
+            prefix = 'v'
         }
         versionIncrementer 'incrementMinorIfNotOnRelease'
     }
@@ -42,7 +43,7 @@ subprojects {
     apply plugin: 'jacoco'
     apply plugin: 'java-library'
     apply plugin: 'maven-publish'
-    apply plugin: 'signing'
+    //apply plugin: 'signing'
 
     group = rootProject.group
     version = rootProject.version
@@ -80,6 +81,7 @@ subprojects {
                 groupId = project.group
                 artifactId = project.name
                 version = project.version
+                //artifact distZip
             }
         }
 
@@ -97,14 +99,14 @@ subprojects {
             }
         }
 
-        signing {
+        /*signing {
             def signingKey = System.getenv('GPG_SECRET')
             def signingPass = System.getenv('GPG_PASSPHRASE')
             if (signingKey) {
                 useInMemoryPgpKeys(signingKey, signingPass)
                 sign publishing.publications
             }
-        }
+        }*/
     }
 }
 
