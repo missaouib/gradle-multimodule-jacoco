@@ -2,7 +2,7 @@ plugins {
     id 'java'
     id 'jacoco'
     id 'idea'
-    id 'pl.allegro.tech.build.axion-release' version '1.14.3'
+    id 'pl.allegro.tech.build.axion-release' version '1.18.18'
     id 'maven-publish'
     id 'signing'
     id 'base'
