@@ -2,11 +2,26 @@ plugins {
     id 'java'
     id 'jacoco'
     id 'idea'
+    id 'pl.allegro.tech.build.axion-release' version '1.14.3'
+    id 'maven-publish'
+    id 'signing'
+    id 'base'
 }
+
+def isSnapshot = version.toString().endsWith('SNAPSHOT')
 
 allprojects {
     group = 'com.example.productmanagement'
-    version = '0.0.1-SNAPSHOT'
+
+    // Axion Release Plugin (Git-based versioning)
+    scmVersion {
+        tag {
+            prefix = ''
+        }
+        versionIncrementer 'incrementMinorIfNotOnRelease'
+    }
+    project.version = scmVersion.version
+    println "📦 Project ${project.name} with version: ${project.version}"
     
     repositories {
         mavenCentral()
@@ -16,7 +31,7 @@ allprojects {
     }
     
     // Force a specific version of snakeyaml that is available
-    configurations.all {
+    configurations.configureEach {
         resolutionStrategy.force 'org.yaml:snakeyaml:1.30'
     }
     
@@ -24,8 +39,13 @@ allprojects {
 }
 
 subprojects {
-    apply plugin: 'java'
     apply plugin: 'jacoco'
+    apply plugin: 'java-library'
+    apply plugin: 'maven-publish'
+    apply plugin: 'signing'
+
+    group = rootProject.group
+    version = rootProject.version
     
     java {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -52,7 +72,84 @@ subprojects {
             excludes = ['sun.util.resources.cldr.*']
         }
     }
+
+    publishing {
+        publications {
+            mavenJava(MavenPublication) {
+                from components.java
+                groupId = project.group
+                artifactId = project.name
+                version = project.version
+            }
+        }
+
+        repositories {
+            maven {
+                def repoUrl = isSnapshot ?
+                        "${System.getenv('NEXUS_URL')}/repository/${System.getenv('NEXUS_REPO_SNAPSHOT')}" :
+                        "${System.getenv('NEXUS_URL')}/repository/${System.getenv('NEXUS_REPO_RELEASE')}"
+                url = uri(repoUrl)
+
+                credentials {
+                    username = System.getenv('NEXUS_USERNAME')
+                    password = System.getenv('NEXUS_PASSWORD')
+                }
+            }
+        }
+
+        signing {
+            def signingKey = System.getenv('GPG_SECRET')
+            def signingPass = System.getenv('GPG_PASSPHRASE')
+            if (signingKey) {
+                useInMemoryPgpKeys(signingKey, signingPass)
+                sign publishing.publications
+            }
+        }
+    }
 }
+
+// ----------- Changelog Generation Task ----------
+task generateChangelog {
+    group = 'documentation'
+    description = 'Generates a changelog from git logs.'
+
+    doLast {
+        def lastTag = 'git describe --tags --abbrev=0'.execute().text.trim()
+        def log = "git log ${lastTag}..HEAD --oneline".execute().text
+        file('CHANGELOG.md').text = "# Changelog\n\n${log}"
+        println "✅ Changelog generated from ${lastTag}"
+    }
+}
+
+// ----------- Docker Push to Harbor -------------
+task dockerPushToHarbor {
+    group = 'docker'
+    description = 'Builds and pushes Docker image to Harbor'
+
+    doLast {
+        def harborUrl = System.getenv('HARBOR_URL')
+        def harborProject = System.getenv('HARBOR_PROJECT')
+        def dockerImage = System.getenv('DOCKER_IMAGE_NAME') ?: 'gradle'
+        def imageTag = project.version.toString()
+        def fullImage = "${harborUrl}/${harborProject}/${dockerImage}:${imageTag}"
+
+        println "🚢 Building and pushing Docker image: ${fullImage}"
+
+        def cmds = [
+                "docker login ${harborUrl} -u ${System.getenv('HARBOR_USERNAME')} -p ${System.getenv('HARBOR_PASSWORD')}",
+                "docker build -t ${fullImage} .",
+                "docker push ${fullImage}"
+        ]
+
+        cmds.each { cmd ->
+            println "> ${cmd}"
+            def proc = ['bash', '-c', cmd].execute()
+            proc.in.eachLine { println it }
+            proc.waitFor()
+        }
+    }
+}
+
 
 // Task to aggregate all unit test JaCoCo reports
 task jacocoMergedReport(type: JacocoReport) {
